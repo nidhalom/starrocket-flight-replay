@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StarRocket — Flight Replay</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div class="hud-header">
+    <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 1 L17 14 L12 11 L7 14 Z" fill="#e8edf2"/>
+      <path d="M12 11 L12 23 L9 20 L9 16 Z" fill="#ff5a36"/>
+      <path d="M12 11 L12 23 L15 20 L15 16 Z" fill="#5eead4" opacity="0.7"/>
+    </svg>
+    <div>
+      <h1>STARROCKET // FLIGHT REPLAY</h1>
+      <p id="subtitle">Simulation mode</p>
+    </div>
+  </div>
+
+  <aside id="drawer" class="panel">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="sim" role="tab">Simulation</button>
+      <button class="tab" data-tab="data" role="tab">Data</button>
+      <button class="tab" data-tab="flights" role="tab">Flights</button>
+    </nav>
+
+    <section class="tabpane" id="pane-sim">
+      <p class="note">Built-in physics model (not recorded data). Edit parameters and run.</p>
+      <div id="simParams" class="params"></div>
+      <div class="btnrow">
+        <button id="runSim" class="primary">Run simulation</button>
+        <button id="resetSim">Defaults</button>
+      </div>
+      <div id="simMsg" class="msg"></div>
+    </section>
+
+    <section class="tabpane" id="pane-data" hidden>
+      <p class="note">Import a CSV or JSON from your altimeter. Columns are auto-detected; check them below.</p>
+      <label class="drop" id="dropZone">
+        <input type="file" id="dataFile" accept=".csv,.txt,.tsv,.json" />
+        <span>Choose a file or drop it here</span>
+      </label>
+      <div class="btnrow">
+        <button id="loadSample1">Synthetic sample: baro only (ft, ms)</button>
+        <button id="loadSample2">Synthetic sample: GPS + events</button>
+      </div>
+      <div id="mapping" hidden>
+        <h3>Columns</h3>
+        <div class="grid2" id="mapGrid"></div>
+        <h3>Units</h3>
+        <div class="grid2">
+          <label>Time <select id="uTime"><option>s</option><option>ms</option><option>min</option></select></label>
+          <label>Altitude <select id="uLen"><option>m</option><option>ft</option><option>km</option></select></label>
+          <label>Velocity <select id="uVel"><option>m/s</option><option>ft/s</option><option>km/h</option><option>mph</option></select></label>
+          <label>Accel <select id="uAcc"><option value="m/s2">m/s2</option><option value="ft/s2">ft/s2</option><option>g</option></select></label>
+        </div>
+        <h3>Processing</h3>
+        <label class="row-inline">Smoothing <input type="range" id="smooth" min="1" max="31" step="2" value="5" /><output id="smoothOut">5</output></label>
+        <label class="check"><input type="checkbox" id="zeroAlt" checked /> Zero altitude at pad (subtract baseline)</label>
+        <label class="check"><input type="checkbox" id="trim" checked /> Trim to liftoff - 1 s ... landing + 2 s</label>
+        <div id="windBox">
+          <p class="note">No GPS columns: the downrange path is an estimate from this wind.</p>
+          <div class="grid2">
+            <label>Wind m/s <input type="number" id="dWind" value="0" min="0" max="40" step="0.5" /></label>
+            <label>Toward deg <input type="number" id="dWindDir" value="90" min="0" max="360" step="1" /></label>
+          </div>
+        </div>
+        <label>Flight name <input type="text" id="dataName" /></label>
+      </div>
+      <div id="dataMsg" class="msg"></div>
+    </section>
+
+    <section class="tabpane" id="pane-flights" hidden>
+      <label>Save current flight as <input type="text" id="saveName" placeholder="name" /></label>
+      <div class="btnrow">
+        <button id="saveBtn" class="primary">Save to browser</button>
+        <button id="pinBtn" title="Use the current flight as comparison B">Pin as B</button>
+        <button id="clearB">Clear B</button>
+      </div>
+      <h3>Saved flights</h3>
+      <ul id="savedList" class="saved"></ul>
+      <h3>File</h3>
+      <div class="btnrow">
+        <button id="exportBtn">Export current (.starrocket.json)</button>
+        <button id="exportAllBtn">Export all saved</button>
+      </div>
+      <label class="drop small"><input type="file" id="importFile" accept=".json,.starrocket.json" /><span>Import .starrocket.json</span></label>
+      <div id="flightMsg" class="msg"></div>
+    </section>
+  </aside>
+
+  <aside id="telemetry" class="panel">
+    <div class="row"><span class="label">PHASE</span><span class="value phase" id="t-phase">—</span></div>
+    <div class="row"><span class="label">T+</span><span class="value" id="t-time">0.00 s</span></div>
+    <div class="row"><span class="label">ALT</span><span class="value" id="t-alt">0 m</span></div>
+    <div class="row"><span class="label">VERT SPEED</span><span class="value" id="t-vspeed">0.0 m/s</span></div>
+    <div class="row"><span class="label">ACCEL</span><span class="value" id="t-acc">0.0 m/s²</span></div>
+    <div class="row"><span class="label" id="t-rangeLabel">POS X / Y</span><span class="value" id="t-pos">0 / 0 m</span></div>
+    <div class="row" data-sim><span class="label">PITCH</span><span class="value" id="t-pitch">0.0°</span></div>
+    <div class="row" data-sim><span class="label">ROLL</span><span class="value" id="t-roll">0.0°</span></div>
+    <div class="row" data-sim><span class="label">YAW</span><span class="value" id="t-yaw">0.0°</span></div>
+    <div class="row" data-data hidden><span class="label" title="Angle of the climb path from vertical (ascent only)">CLIMB ANGLE</span><span class="value" id="t-path">0°</span></div>
+    <div class="row" data-b hidden><span class="label cmpB">B ALT</span><span class="value cmpB" id="t-balt">—</span></div>
+    <div class="row" data-b hidden><span class="label cmpB">A - B ALT</span><span class="value cmpB" id="t-dalt">—</span></div>
+    <div class="events" id="events"></div>
+  </aside>
+
+  <div id="graph-panel" class="panel">
+    <div class="graph-head">
+      <span class="glabel"><i class="sw a"></i><span id="legA">A</span> <i class="sw b" id="swB" hidden></i><span id="legB"></span></span>
+      <button id="graphPng" title="Download graphs as PNG">PNG</button>
+    </div>
+    <canvas id="chart0" class="chart"></canvas>
+    <canvas id="chart1" class="chart"></canvas>
+    <canvas id="chart2" class="chart"></canvas>
+  </div>
+
+  <div id="controls" class="panel">
+    <button id="drawerBtn" class="mobile-only">Setup</button>
+    <button id="playBtn">⏸ Pause</button>
+    <button id="resetBtn">⟲ Reset</button>
+    <div id="speedGroup"></div>
+    <input id="scrub" type="range" min="0" max="1" step="0.01" value="0" aria-label="Timeline" />
+    <span class="time-readout" id="timeReadout">0.0 / 0.0 s</span>
+    <button id="viewBtn">View: Follow</button>
+    <button id="orbitBtn" title="Slowly turn the camera around the rocket">Orbit</button>
+    <button id="hiVisBtn" title="Brighter, lighter scene">Hi-vis</button>
+    <button id="shotBtn" title="Save a PNG of the 3D view">Screenshot</button>
+    <button id="graphBtn" class="mobile-only">Graphs</button>
+  </div>
+
+  <div class="hint">drag — rotate view · scroll — zoom · space — play/pause</div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

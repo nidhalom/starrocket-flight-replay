@@ -1,0 +1,14 @@
+{
+  "name": "starrocket-flight-replay",
+  "version": "0.1.0",
+  "description": "3D flight replay and telemetry viewer for model rockets: built-in physics simulation or imported altimeter CSV/JSON.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test",
+    "samples": "node tools/make-samples.mjs",
+    "start": "node tools/serve.mjs"
+  },
+  "engines": { "node": ">=22" }
+}

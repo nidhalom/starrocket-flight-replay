@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StarRocket — Fail-Safe Demo</title>
+<style>
+  body { 
+    margin: 0; 
+    height: 100vh; 
+    background: #0a0e14; 
+    color: white; 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    perspective: 1000px;
+  }
+
+  /* Diagnostic Overlay */
+  #diag {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.8);
+    padding: 10px;
+    border: 1px solid #00ff00;
+    font-family: monospace;
+    font-size: 12px;
+    z-index: 100;
+  }
+
+  /* 3D Scene */
+  #scene {
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.1s;
+  }
+
+  /* CSS Rocket (Pure CSS 3D) */
+  #rocket-container {
+    position: absolute;
+    bottom: 20%;
+    left: 50%;
+    transform-style: preserve-3d;
+    transform: translate(-50%, 0) rotateY(0deg);
+    animation: turnAround 10s linear infinite;
+  }
+
+  .rocket {
+    position: relative;
+    width: 40px;
+    height: 150px;
+    transform-style: preserve-3d;
+  }
+
+  /* Body */
+  .body {
+    position: absolute;
+    width: 40px;
+    height: 150px;
+    background: linear-gradient(to right, #e2e8f0, #cbd5e1, #94a3b8);
+    border-radius: 5px;
+  }
+
+  /* Fin 1 */
+  .fin {
+    position: absolute;
+    width: 30px;
+    height: 40px;
+    background: #1e293b;
+    bottom: 0;
+    left: 50%;
+    transform-origin: left;
+  }
+  .fin1 { transform: rotateY(0deg) translateX(20px); }
+  .fin2 { transform: rotateY(120deg) translateX(20px); }
+  .fin3 { transform: rotateY(240deg) translateX(20px); }
+
+  /* Nose */
+  .nose {
+    position: absolute;
+    top: -40px;
+    width: 0;
+    height: 0;
+    border-left: 20px solid transparent;
+    border-right: 20px solid transparent;
+    border-bottom: 40px solid #ef4444;
+  }
+
+  /* Flame */
+  .flame {
+    position: absolute;
+    bottom: -40px;
+    left: 10px;
+    width: 20px;
+    height: 40px;
+    background: orange;
+    border-radius: 50%;
+    filter: blur(5px);
+    animation: flicker 0.1s infinite;
+  }
+
+  @keyframes flicker {
+    0% { height: 40px; opacity: 0.8; }
+    50% { height: 55px; opacity: 1; }
+    100% { height: 40px; opacity: 0.8; }
+  }
+
+  @keyframes turnAround {
+    from { transform: translate(-50%, 0) rotateY(0deg); }
+    to { transform: translate(-50%, 0) rotateY(360deg); }
+  }
+
+  #ground {
+    position: absolute;
+    bottom: 0;
+    width: 2000px;
+    height: 2000px;
+    background: #1a202c;
+    transform: rotateX(90deg) translateZ(0);
+    background-image: linear-gradient(#2d3748 1px, transparent 1px), linear-gradient(90deg, #2d3748 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  h1 { position: fixed; top: 20px; width: 100%; text-align: center; letter-spacing: 5px; opacity: 0.5; }
+</style>
+</head>
+<body>
+
+<div id="diag">
+  STATUS: <span id="js-status">LOADING...</span><br>
+  ANIMATION: <span id="anim-status">WAITING</span>
+</div>
+
+<h1>STARROCKET</h1>
+
+<div id="scene">
+  <div id="ground"></div>
+  <div id="rocket-container">
+    <div class="rocket" id="rocket-mesh">
+      <div class="nose"></div>
+      <div class="body"></div>
+      <div class="fin fin1"></div>
+      <div class="fin fin2"></div>
+      <div class="fin fin3"></div>
+      <div class="flame"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('js-status').innerText = 'JAVASCRIPT ACTIVE';
+  document.getElementById('js-status').style.color = '#00ff00';
+
+  let altitude = 0;
+  let velocity = 5;
+  const rocket = document.getElementById('rocket-container');
+  const animStatus = document.getElementById('anim-status');
+
+  function flightLoop() {
+    altitude += velocity;
+    
+    // Simulate gravity after boost
+    if (altitude > 400) {
+      velocity -= 0.1;
+    }
+
+    // Reset loop
+    if (altitude < -100) {
+      altitude = 0;
+      velocity = 5;
+    }
+
+    // Apply 3D Transform
+    rocket.style.bottom = (20 + (altitude / 10)) + '%';
+    
+    animStatus.innerText = 'ALTITUDE: ' + Math.floor(altitude) + 'm';
+    
+    requestAnimationFrame(flightLoop);
+  }
+
+  flightLoop();
+</script>
+</body>
+</html>

@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StarRocket — Cinematic Demo</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/128/three.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05070a;
+    --panel:rgba(10,15,22,0.85);
+    --border:#1a232e;
+    --text:#e8edf2;
+    --muted:#64748b;
+    --flame:#ff4d26;
+    --data:#2dd4bf;
+    --accent:#8b5cf6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
+    font-family:'Space Grotesk',sans-serif;color:var(--text);}
+  canvas#scene{position:fixed;inset:0;display:block;touch-action:none;}
+
+  .hud-header{position:fixed;top:20px;left:20px;z-index:10;display:flex;align-items:center;gap:12px;}
+  .mark{width:32px;height:32px;flex:none;filter: drop-shadow(0 0 8px rgba(94,234,212,0.3));}
+  .hud-header h1{font-size:20px;letter-spacing:0.2em;margin:0;font-weight:700;background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
+  .hud-header p{margin:4px 0 0;font-size:11px;color:var(--muted);letter-spacing:0.06em;text-transform: uppercase;}
+
+  #telemetry{position:fixed;top:20px;right:20px;z-index:10;background:var(--panel);
+    border:1px solid var(--border);border-radius:12px;padding:14px 18px;
+    backdrop-filter:blur(12px);min-width:210px;box-shadow: 0 10px 30px rgba(0,0,0,0.5);}
+  #telemetry .row{display:flex;justify-content:space-between;gap:12px;
+    font-family:'JetBrains Mono',monospace;font-size:12px;padding:5px 0;
+    border-bottom:1px solid rgba(255,255,255,0.03);}
+  #telemetry .row:last-child{border-bottom:none;}
+  #telemetry .label{color:var(--muted);letter-spacing:0.05em;font-size:10px;}
+  #telemetry .value{color:var(--data);font-weight:500;}
+  #telemetry .value.phase{color:var(--flame);font-weight:700;letter-spacing:0.1em;text-shadow: 0 0 10px rgba(255,77,38,0.4);}
+
+  #graph-panel{position:fixed;left:20px;bottom:90px;z-index:10;background:var(--panel);
+    border:1px solid var(--border);border-radius:12px;padding:12px;
+    backdrop-filter:blur(12px);box-shadow: 0 10px 30px rgba(0,0,0,0.5);}
+  #graph-panel .glabel{font-size:10px;color:var(--muted);letter-spacing:0.15em;
+    margin:0 0 8px;font-family:'JetBrains Mono',monospace;text-align: center;}
+
+  #controls{position:fixed;bottom:20px;left:20px;right:20px;z-index:10;background:var(--panel);
+    border:1px solid var(--border);border-radius:14px;backdrop-filter:blur(12px);
+    padding:12px 20px;display:flex;align-items:center;gap:15px;flex-wrap:nowrap;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);}
+  
+  button{background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--text);
+    font-family:'Space Grotesk',sans-serif;font-size:13px;padding:8px 16px;
+    border-radius:8px;cursor:pointer;letter-spacing:0.05em;transition:all .2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; align-items: center; gap: 8px;}
+  button:hover{background:rgba(255,255,255,0.08);border-color:var(--data);color:var(--data);transform: translateY(-1px);}
+  button:active{transform: translateY(0);}
+  button.active{background:var(--data);color:#06231e;border-color:var(--data);font-weight: 600;}
+  
+  button#demoBtn{border-color: var(--accent); color: var(--accent);}
+  button#demoBtn.active{background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);}
+
+  #speedGroup{display:flex;gap:6px;}
+  input[type=range]{flex:1;accent-color:var(--data);cursor: pointer;}
+  .time-readout{font-family:'JetBrains Mono',monospace;font-size:12px;
+    color:var(--muted);min-width:110px;text-align:right;}
+
+  .hint{position:fixed;bottom:90px;right:20px;z-index:10;font-size:10px;
+    color:var(--muted);letter-spacing:0.08em;font-family:'JetBrains Mono',monospace;
+    text-align:right;background: rgba(0,0,0,0.3); padding: 6px 10px; border-radius: 6px;}
+
+  .badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;margin-left:8px;vertical-align:middle;}
+  .badge-live{background:rgba(255,77,38,0.2);color:var(--flame);border:1px solid var(--flame);}
+
+  @media (max-width:800px){
+    #controls{flex-wrap: wrap; justify-content: center;}
+    #telemetry{display: none;}
+    #graph-panel{display: none;}
+  }
+</style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div class="hud-header">
+    <svg class="mark" viewBox="0 0 24 24" fill="none">
+      <path d="M12 1 L17 14 L12 11 L7 14 Z" fill="#e8edf2"/>
+      <path d="M12 11 L12 23 L9 20 L9 16 Z" fill="#ff5a36"/>
+      <path d="M12 11 L12 23 L15 20 L15 16 Z" fill="#5eead4" opacity="0.7"/>
+    </svg>
+    <div>
+      <h1>STARROCKET <span class="badge badge-live">RENDER</span></h1>
+      <p>Precision Guidance & Telemetry Demo</p>
+    </div>
+  </div>
+
+  <aside id="telemetry">
+    <div class="row"><span class="label">MISSION PHASE</span><span class="value phase" id="t-phase">—</span></div>
+    <div class="row"><span class="label">MET (T+)</span><span class="value" id="t-time">0.00 s</span></div>
+    <div class="row"><span class="label">ALTITUDE</span><span class="value" id="t-alt">0 m</span></div>
+    <div class="row"><span class="label">VERTICAL VEL</span><span class="value" id="t-vspeed">0.0 m/s</span></div>
+    <div class="row"><span class="label">GROUND TRACK</span><span class="value" id="t-pos">0 / 0 m</span></div>
+    <div class="row"><span class="label">PITCH / YAW</span><span class="value" id="t-py">0.0° / 0.0°</span></div>
+    <div class="row"><span class="label">ROLL ANGLE</span><span class="value" id="t-roll">0.0°</span></div>
+  </aside>
+
+  <div id="graph-panel">
+    <p class="glabel">ALTITUDE PROFILE</p>
+    <canvas id="altGraph" width="220" height="90"></canvas>
+  </div>
+
+  <div class="hint">DRAG TO ROTATE • SCROLL TO ZOOM</div>
+
+  <div id="controls">
+    <button id="playBtn">⏸ PAUSE</button>
+    <button id="resetBtn">⟲ RESET</button>
+    <div id="speedGroup"></div>
+    <input id="scrub" type="range" min="0" max="1" step="0.05" value="0" />
+    <span class="time-readout" id="timeReadout">0.0 / 0.0 s</span>
+    <button id="viewBtn">FOLLOW</button>
+    <button id="demoBtn">✨ DEMO</button>
+  </div>
+
+<script>
+// ---------------------------------------------------------------
+// 1. SAMPLE FLIGHT DATA GENERATION
+// ---------------------------------------------------------------
+const DT = 0.04;
+const SCALE = 0.045; 
+
+function generateFlightData(){
+  const v0 = 180, g = 9.81;
+  const tBurnout = 2.0;
+  const tcApogee = v0 / g;
+  const tApogee = tBurnout + tcApogee;
+  const mainDeployAlt = 300;
+
+  const frames = [];
+  let t = 0, alt = 0, x = 0, y = 0, rollAccum = 0;
+  let mainDeployed = false, mainDeployTime = 0, mainVx0 = 0, mainVy0 = 0;
+
+  for(;;){
+    let phase, vAlt, pitch, rollRate, yaw, vx, vy;
+
+    if (t < tBurnout) {
+      phase = 'BOOST';
+      const p = t / tBurnout;
+      vAlt = v0 * p;
+      pitch = 4 + 1.2 * Math.sin(t * 9);
+      rollRate = 600 * p;
+      yaw = 1.5 * Math.sin(t * 5);
+      vx = 0.4 * p;
+      vy = 0.25 * p;
+    } else if (t < tApogee) {
+      phase = 'COAST';
+      const tc = t - tBurnout;
+      vAlt = v0 - g * tc;
+      pitch = 4 + 3 * Math.sin(tc * 0.6) * Math.exp(-tc * 0.04);
+      rollRate = 600 * Math.exp(-tc * 0.12);
+      yaw = 2 * Math.sin(tc * 0.35);
+      vx = 0.4 + 0.18 * tc;
+      vy = 0.25 + 0.12 * tc;
+    } else if (!mainDeployed) {
+      phase = 'DROGUE';
+      const td = t - tApogee;
+      vAlt = -25 * Math.min(1, td / 3);
+      pitch = 4 + 88 * Math.min(1, td / 4) + 8 * Math.sin(td * 0.9);
+      rollRate = 66.5 * Math.exp(-td * 0.3) + 3 * Math.sin(td * 0.8);
+      yaw = 4 * Math.sin(td * 0.25);
+      vx = 3.7 + 0.05 * td;
+      vy = 2.45 + 0.04 * td;
+
+      if (alt <= mainDeployAlt && vAlt < 0) {
+        mainDeployed = true;
+        mainDeployTime = t;
+        mainVx0 = vx;
+        mainVy0 = vy;
+      }
+    } else {
+      phase = 'MAIN';
+      const tm = t - mainDeployTime;
+      vAlt = -6 - 14 * Math.exp(-tm * 1.2);
+      pitch = 25 + 15 * Math.sin(tm * 0.7) * Math.exp(-tm * 0.05);
+      rollRate = 2 * Math.sin(tm * 0.6);
+      yaw = 3 * Math.sin(tm * 0.2);
+      vx = mainVx0 + 0.02 * tm;
+      vy = mainVy0 + 0.015 * tm;
+    }
+
+    rollAccum += rollRate * DT;
+
+    frames.push({
+      t: t, x: x, y: y, alt: Math.max(alt, 0),
+      pitch: pitch, roll: rollAccum, yaw: yaw,
+      vAlt: vAlt, phase: phase
+    });
+
+    if (phase === 'MAIN' && alt <= 0) break;
+    if (t > 240) break;
+
+    alt += vAlt * DT;
+    x += vx * DT;
+    y += vy * DT;
+    t += DT;
+  }
+  if (frames.length) frames[frames.length - 1].alt = 0;
+  return frames;
+}
+
+const frames = generateFlightData();
+const totalDuration = frames[frames.length - 1].t;
+const maxAlt = Math.max.apply(null, frames.map(f => f.alt));
+
+const graphPoints = [];
+for (let i = 0; i < frames.length; i += 12) graphPoints.push(frames[i]);
+graphPoints.push(frames[frames.length - 1]);
+
+function sampleFrame(time){
+  const idx = time / DT;
+  const i0c = Math.max(0, Math.min(frames.length - 1, Math.floor(idx)));
+  const i1c = Math.min(frames.length - 1, i0c + 1);
+  const f0 = frames[i0c], f1 = frames[i1c];
+  const a = Math.min(1, Math.max(0, idx - i0c));
+  const lerp = (p, q) => p + (q - p) * a;
+  return {
+    t: time, x: lerp(f0.x, f1.x), y: lerp(f0.y, f1.y), alt: lerp(f0.alt, f1.alt),
+    pitch: lerp(f0.pitch, f1.pitch), yaw: lerp(f0.yaw, f1.yaw), roll: lerp(f0.roll, f1.roll),
+    vAlt: lerp(f0.vAlt, f1.vAlt), phase: f0.phase
+  };
+}
+
+// ---------------------------------------------------------------
+// 2. THREE.JS SCENE
+// ---------------------------------------------------------------
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ReinhardToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070a);
+scene.fog = new THREE.Fog(0x05070a, 80, 280);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+scene.add(new THREE.AmbientLight(0x44506a, 0.8));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+sun.position.set(100, 200, 100);
+scene.add(sun);
+
+// Ground
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(1000, 1000),
+  new THREE.MeshStandardMaterial({ color: 0x0a1018, roughness: 0.8, metalness: 0.2 })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+scene.add(new THREE.GridHelper(1000, 100, 0x1a232e, 0x0f172a));
+
+// Pad
+const pad = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.2, 1.5, 0.4, 32),
+  new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5 })
+);
+pad.position.y = 0.2;
+scene.add(pad);
+
+// Stars
+(function addStars(){
+  const count = 3000;
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = 400 + Math.random() * 200;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI * 0.5;
+    pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    pos[i*3+1] = r * Math.cos(phi) + 10;
+    pos[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.7, transparent: true, opacity: 0.6 });
+  scene.add(new THREE.Points(geo, mat));
+})();
+
+// Rocket
+function buildRocket(){
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.3, roughness: 0.4 });
+  const noseMat = new THREE.MeshStandardMaterial({ color: 0xff4d26, metalness: 0.4, roughness: 0.3 });
+  const finMat  = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.6, roughness: 0.5 });
+
+  const bodyHeight = 3.5, bodyRadius = 0.3;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius, bodyRadius, bodyHeight, 32), bodyMat);
+  body.position.y = bodyHeight / 2;
+  group.add(body);
+
+  const noseHeight = 1.0;
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(bodyRadius, noseHeight, 32), noseMat);
+  nose.position.y = bodyHeight + noseHeight / 2;
+  group.add(nose);
+
+  for (let i = 0; i < 4; i++) {
+    const pivot = new THREE.Group();
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 0.6), finMat);
+    fin.position.set(bodyRadius + 0.1, 0.4, 0);
+    pivot.add(fin);
+    pivot.rotation.y = (i / 4) * Math.PI * 2;
+    group.add(pivot);
+  }
+
+  // Engine Glow
+  const glow = new THREE.PointLight(0xff5a36, 0, 15);
+  glow.position.y = -0.5;
+  group.add(glow);
+  group.userData.glow = glow;
+
+  // Flame
+  const flame = new THREE.Mesh(
+    new THREE.ConeGeometry(bodyRadius * 0.9, 1.8, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffa500, transparent: true, opacity: 0.8 })
+  );
+  flame.rotation.x = Math.PI;
+  flame.position.y = -0.9;
+  flame.visible = false;
+  group.add(flame);
+  group.userData.flame = flame;
+
+  return group;
+}
+
+const rocket = buildRocket();
+scene.add(rocket);
+
+// Trajectory
+const linePositions = new Float32Array(frames.length * 3);
+for (let i = 0; i < frames.length; i++) {
+  linePositions[i*3]   = frames[i].x * SCALE;
+  linePositions[i*3+1] = frames[i].alt * SCALE;
+  linePositions[i*3+2] = frames[i].y * SCALE;
+}
+const fullGeo = new THREE.BufferGeometry();
+fullGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+scene.add(new THREE.Line(fullGeo, new THREE.LineBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.15 })));
+
+const travGeo = new THREE.BufferGeometry();
+travGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+travGeo.setDrawRange(0, 1);
+const travLine = new THREE.Line(travGeo, new THREE.LineBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.8 }));
+scene.add(travLine);
+
+// Camera Setup
+let mode = 'follow'; 
+let isDemo = true;
+let azimuth = Math.PI * 0.25, elevation = Math.PI * 0.15, radius = 18;
+let targetRadius = 18;
+let shakeAmount = 0;
+
+function applyViewPreset(){
+  if (mode === 'follow') {
+    targetRadius = 18; elevation = Math.PI * 0.15;
+  } else {
+    targetRadius = 60; elevation = Math.PI * 0.25;
+  }
+}
+
+let dragging = false, lastX = 0, lastY = 0;
+canvas.addEventListener('pointerdown', e => { 
+  dragging = true; lastX = e.clientX; lastY = e.clientY; 
+  if (isDemo) toggleDemo(false);
+});
+window.addEventListener('pointerup', () => dragging = false);
+window.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  azimuth -= dx * 0.005;
+  elevation = Math.max(0.05, Math.min(Math.PI/2 - 0.05, elevation + dy * 0.005));
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  radius = Math.max(5, Math.min(150, radius + e.deltaY * 0.05));
+  targetRadius = radius;
+  if (isDemo) toggleDemo(false);
+  e.preventDefault();
+}, { passive: false });
+
+function updateCamera(target, dt){
+  if (isDemo) {
+    azimuth += 0.3 * dt;
+    elevation = Math.PI * 0.15 + Math.sin(Date.now() * 0.0005) * 0.05;
+  }
+  
+  // Smooth radius transition
+  radius += (targetRadius - radius) * 0.05;
+
+  let cx = target.x + radius * Math.cos(elevation) * Math.sin(azimuth);
+  let cy = target.y + radius * Math.sin(elevation);
+  let cz = target.z + radius * Math.cos(elevation) * Math.cos(azimuth);
+  
+  // Camera Shake
+  if (shakeAmount > 0) {
+    cx += (Math.random() - 0.5) * shakeAmount;
+    cy += (Math.random() - 0.5) * shakeAmount;
+    cz += (Math.random() - 0.5) * shakeAmount;
+  }
+
+  camera.position.set(cx, cy, cz);
+  camera.lookAt(target.x, target.y, target.z);
+}
+
+// ---------------------------------------------------------------
+// 4. UI WIRING
+// ---------------------------------------------------------------
+const playBtn = document.getElementById('playBtn');
+const resetBtn = document.getElementById('resetBtn');
+const viewBtn = document.getElementById('viewBtn');
+const demoBtn = document.getElementById('demoBtn');
+const scrub = document.getElementById('scrub');
+const timeReadout = document.getElementById('timeReadout');
+const speedGroup = document.getElementById('speedGroup');
+
+scrub.max = totalDuration.toFixed(2);
+scrub.step = (DT).toFixed(2);
+
+let playing = true;
+let speed = 2;
+let simTime = 0;
+
+[1, 2, 4, 8].forEach(s => {
+  const b = document.createElement('button');
+  b.textContent = s + 'x';
+  if (s === speed) b.classList.add('active');
+  b.addEventListener('click', () => {
+    speed = s;
+    speedGroup.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+  });
+  speedGroup.appendChild(b);
+});
+
+function setPlaying(v){
+  playing = v;
+  playBtn.textContent = playing ? '⏸ PAUSE' : '▶ PLAY';
+}
+
+function toggleDemo(v){
+  isDemo = v;
+  demoBtn.classList.toggle('active', isDemo);
+  if (isDemo) {
+    mode = 'follow';
+    viewBtn.textContent = 'FOLLOW';
+    applyViewPreset();
+  }
+}
+
+playBtn.addEventListener('click', () => {
+  if (!playing && simTime >= totalDuration - 0.01) simTime = 0;
+  setPlaying(!playing);
+});
+
+resetBtn.addEventListener('click', () => {
+  simTime = 0; scrub.value = 0; setPlaying(true);
+});
+
+scrub.addEventListener('input', () => {
+  simTime = parseFloat(scrub.value); setPlaying(false);
+});
+
+viewBtn.addEventListener('click', () => {
+  mode = (mode === 'follow') ? 'overview' : 'follow';
+  viewBtn.textContent = mode.toUpperCase();
+  applyViewPreset();
+  if (isDemo) toggleDemo(false);
+});
+
+demoBtn.addEventListener('click', () => toggleDemo(!isDemo));
+toggleDemo(true);
+
+// ---------------------------------------------------------------
+// 5. TELEMETRY + GRAPH
+// ---------------------------------------------------------------
+const elPhase = document.getElementById('t-phase');
+const elTime = document.getElementById('t-time');
+const elAlt = document.getElementById('t-alt');
+const elVSpeed = document.getElementById('t-vspeed');
+const elPos = document.getElementById('t-pos');
+const elPY = document.getElementById('t-py');
+const elRoll = document.getElementById('t-roll');
+
+function updateTelemetry(f){
+  elPhase.textContent = f.phase;
+  elTime.textContent = f.t.toFixed(2) + ' s';
+  elAlt.textContent = f.alt.toFixed(0) + ' m';
+  elVSpeed.textContent = (f.vAlt >= 0 ? '+' : '') + f.vAlt.toFixed(1) + ' m/s';
+  elPos.textContent = f.x.toFixed(0) + ' / ' + f.y.toFixed(0) + ' m';
+  elPY.textContent = f.pitch.toFixed(1) + '° / ' + f.yaw.toFixed(1) + '°';
+  elRoll.textContent = (((f.roll % 360) + 360) % 360).toFixed(1) + '°';
+  timeReadout.textContent = f.t.toFixed(1) + ' / ' + totalDuration.toFixed(1) + ' s';
+}
+
+const gctx = document.getElementById('altGraph').getContext('2d');
+function drawGraph(time){
+  const W = 220, H = 90, p = 8;
+  gctx.clearRect(0, 0, W, H);
+  gctx.strokeStyle = '#2dd4bf';
+  gctx.globalAlpha = 0.2;
+  gctx.lineWidth = 2;
+  gctx.beginPath();
+  for (let i = 0; i < graphPoints.length; i++) {
+    const gp = graphPoints[i];
+    const px = (gp.t / totalDuration) * (W - p*2) + p;
+    const py = H - p - (gp.alt / maxAlt) * (H - p*2);
+    if (i === 0) gctx.moveTo(px, py); else gctx.lineTo(px, py);
+  }
+  gctx.stroke();
+  gctx.globalAlpha = 1;
+
+  const f = sampleFrame(time);
+  const mx = (time / totalDuration) * (W - p*2) + p;
+  const my = H - p - (f.alt / maxAlt) * (H - p*2);
+  gctx.strokeStyle = '#ff4d26';
+  gctx.lineWidth = 1.5;
+  gctx.beginPath(); gctx.moveTo(mx, 0); gctx.lineTo(mx, H); gctx.stroke();
+  gctx.fillStyle = '#ff4d26';
+  gctx.beginPath(); gctx.arc(mx, my, 4, 0, Math.PI * 2); gctx.fill();
+}
+
+// ---------------------------------------------------------------
+// 6. ANIMATION LOOP
+// ---------------------------------------------------------------
+let lastNow = performance.now();
+function animate(now){
+  requestAnimationFrame(animate);
+  const dt = Math.min((now - lastNow) / 1000, 0.1);
+  lastNow = now;
+
+  if (playing) {
+    simTime += dt * speed;
+    if (simTime >= totalDuration) { simTime = totalDuration; setPlaying(false); }
+    scrub.value = simTime;
+  }
+
+  const f = sampleFrame(simTime);
+
+  rocket.position.set(f.x * SCALE, f.alt * SCALE, f.y * SCALE);
+  rocket.rotation.x = THREE.MathUtils.degToRad(f.pitch);
+  rocket.rotation.z = THREE.MathUtils.degToRad(f.yaw);
+  rocket.rotation.y = THREE.MathUtils.degToRad(f.roll);
+  
+  const isBoost = f.phase === 'BOOST';
+  rocket.userData.flame.visible = isBoost;
+  rocket.userData.glow.intensity = isBoost ? 1.5 + Math.random() * 1.0 : 0;
+  
+  if (isBoost) {
+    rocket.userData.flame.scale.set(1, 0.8 + Math.random() * 0.6, 1);
+    shakeAmount = 0.15;
+    if (isDemo) targetRadius = 14; // Zoom in during boost
+  } else {
+    shakeAmount = Math.max(0, shakeAmount - dt * 0.5);
+    if (isDemo) targetRadius = 22; // Zoom out during coast/descent
+  }
+
+  const idx = Math.min(frames.length - 1, Math.floor(simTime / DT));
+  travGeo.setDrawRange(0, Math.max(2, idx + 1));
+
+  const target = (mode === 'follow') ? rocket.position : new THREE.Vector3(0, maxAlt*SCALE*0.5, 0);
+  updateCamera(target, dt);
+
+  updateTelemetry(f);
+  drawGraph(simTime);
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>StarRocket — Professional Flight Replay</title>
+<!-- Multiple CDN Fallbacks for Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #00f2ff;
+    --warn: #ff4d00;
+    --bg: #0f172a;
+    --panel: rgba(15, 23, 42, 0.9);
+    --border: #334155;
+  }
+  body, html { margin: 0; padding: 0; overflow: hidden; background: #000; font-family: 'Inter', sans-serif; color: #fff; }
+  canvas { display: block; }
+
+  /* Technical HUD */
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    z-index: 10;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 15px;
+    backdrop-filter: blur(10px);
+    pointer-events: auto;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; }
+  .title-group h1 { margin: 0; font-size: 18px; letter-spacing: 2px; color: var(--accent); }
+  .title-group p { margin: 4px 0 0; font-size: 10px; opacity: 0.6; text-transform: uppercase; }
+
+  .telemetry-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 15px;
+    min-width: 280px;
+  }
+  .stat { border-left: 2px solid var(--border); padding-left: 10px; }
+  .stat-label { font-size: 9px; opacity: 0.5; margin-bottom: 2px; }
+  .stat-value { font-size: 14px; font-weight: bold; color: var(--accent); }
+  .phase-active { color: var(--warn) !important; text-shadow: 0 0 10px rgba(255, 77, 0, 0.5); }
+
+  #controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 10px 20px;
+    border-radius: 4px;
+    pointer-events: auto;
+  }
+  button {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 6px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    transition: 0.2s;
+  }
+  button:hover { background: var(--accent); color: #000; }
+  button.active { background: var(--accent); color: #000; }
+
+  /* Diagnostic / Fail-safe labels */
+  #loading-overlay {
+    position: fixed; inset: 0; background: #000; z-index: 1000;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+  }
+  .error-msg { color: #ff4d4d; font-family: monospace; text-align: center; display: none; }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div id="loader">INITIALIZING FLIGHT ENGINE...</div>
+  <div id="error" class="error-msg">
+    <p>ERROR: COULD NOT INITIALIZE 3D ENVIRONMENT</p>
+    <p style="font-size: 12px; opacity: 0.7;">Please check if WebGL is enabled or use a modern browser.</p>
+  </div>
+</div>
+
+<div id="hud">
+  <div class="header">
+    <div class="panel title-group">
+      <h1>STARROCKET // FLIGHT REPLAY</h1>
+      <p>System: StarRocket Simulation Engine</p>
+      <div class="telemetry-grid">
+        <div class="stat"><div class="stat-label">MISSION PHASE</div><div class="stat-value phase-active" id="phase">---</div></div>
+        <div class="stat"><div class="stat-label">TIME T+</div><div class="stat-value" id="time">0.00s</div></div>
+        <div class="stat"><div class="stat-label">ALTITUDE (MSL)</div><div class="stat-value" id="alt">0m</div></div>
+        <div class="stat"><div class="stat-label">VERTICAL VEL.</div><div class="stat-value" id="vvel">0.0m/s</div></div>
+        <div class="stat"><div class="stat-label">LATERAL DRIFT</div><div class="stat-value" id="drift">0 / 0 m</div></div>
+        <div class="stat"><div class="stat-label">IMU ATTITUDE</div><div class="stat-value" id="imu">P:0 R:0 Y:0</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="controls-container" style="display:flex; justify-content: center;">
+    <div id="controls">
+      <button id="playBtn">PAUSE</button>
+      <button id="resetBtn">RESET</button>
+      <button id="turnBtn" class="active">AUTO-TURNAROUND: ON</button>
+      <div style="width: 150px; display: flex; align-items: center; margin: 0 15px;">
+        <input type="range" id="scrub" style="width: 100%;" min="0" max="100" value="0">
+      </div>
+      <span id="speedDisplay" style="font-size: 10px; font-family: monospace; min-width: 40px;">1.0x</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- DIAGNOSTICS ---
+window.onerror = function(msg) {
+  document.getElementById('error').style.display = 'block';
+  document.getElementById('loader').style.display = 'none';
+};
+
+if (typeof THREE === 'undefined') {
+  throw new Error("Three.js not loaded");
+}
+
+// --- FLIGHT SIMULATION DATA (Original 2024 Math) ---
+const DT = 0.04;
+const SCALE = 0.05;
+
+function generateFlightData(){
+  const v0 = 180, g = 9.81;
+  const tBurnout = 2.0;
+  const tcApogee = v0 / g;
+  const tApogee = tBurnout + tcApogee;
+  const mainDeployAlt = 300;
+
+  const frames = [];
+  let t = 0, alt = 0, x = 0, y = 0, rollAccum = 0;
+  let mainDeployed = false, mainDeployTime = 0, mainVx0 = 0, mainVy0 = 0;
+
+  while(t < 240) {
+    let phase, vAlt, pitch, rollRate, yaw, vx, vy;
+
+    if (t < tBurnout) {
+      phase = 'BOOST';
+      const p = t / tBurnout;
+      vAlt = v0 * p;
+      pitch = 4 + 1.2 * Math.sin(t * 9);
+      rollRate = 600 * p;
+      yaw = 1.5 * Math.sin(t * 5);
+      vx = 0.4 * p; vy = 0.25 * p;
+    } else if (t < tApogee) {
+      phase = 'COAST';
+      const tc = t - tBurnout;
+      vAlt = v0 - g * tc;
+      pitch = 4 + 3 * Math.sin(tc * 0.6) * Math.exp(-tc * 0.04);
+      rollRate = 600 * Math.exp(-tc * 0.12);
+      yaw = 2 * Math.sin(tc * 0.35);
+      vx = 0.4 + 0.18 * tc; vy = 0.25 + 0.12 * tc;
+    } else if (!mainDeployed) {
+      phase = 'DROGUE';
+      const td = t - tApogee;
+      vAlt = -25 * Math.min(1, td / 3);
+      pitch = 4 + 88 * Math.min(1, td / 4) + 8 * Math.sin(td * 0.9);
+      rollRate = 66.5 * Math.exp(-td * 0.3) + 3 * Math.sin(td * 0.8);
+      yaw = 4 * Math.sin(td * 0.25);
+      vx = 3.7 + 0.05 * td; vy = 2.45 + 0.04 * td;
+
+      if (alt <= mainDeployAlt && vAlt < 0) {
+        mainDeployed = true; mainDeployTime = t;
+        mainVx0 = vx; mainVy0 = vy;
+      }
+    } else {
+      phase = 'MAIN';
+      const tm = t - mainDeployTime;
+      vAlt = -6 - 14 * Math.exp(-tm * 1.2);
+      pitch = 25 + 15 * Math.sin(tm * 0.7) * Math.exp(-tm * 0.05);
+      rollRate = 2 * Math.sin(tm * 0.6);
+      yaw = 3 * Math.sin(tm * 0.2);
+      vx = mainVx0 + 0.02 * tm; vy = mainVy0 + 0.015 * tm;
+    }
+
+    rollAccum += rollRate * DT;
+    frames.push({ t, x, y, alt: Math.max(0, alt), pitch, roll: rollAccum, yaw, vAlt, phase });
+
+    if (phase === 'MAIN' && alt <= 0 && t > tApogee) break;
+    alt += vAlt * DT; x += vx * DT; y += vy * DT; t += DT;
+  }
+  return frames;
+}
+
+const frames = generateFlightData();
+const totalDuration = frames[frames.length - 1].t;
+
+// --- THREE.JS SCENE RECONSTRUCTION ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a1120);
+scene.fog = new THREE.Fog(0x0a1120, 50, 300);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+// Enhanced Lighting for visibility
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(50, 100, 50);
+scene.add(sun);
+
+// Ground Grid
+const grid = new THREE.GridHelper(500, 50, 0x1e293b, 0x0f172a);
+scene.add(grid);
+
+// Rocket Construction (Professional Mesh)
+function createRocket() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.3, 3.5, 32),
+    new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.5, roughness: 0.2 })
+  );
+  body.position.y = 1.75;
+  group.add(body);
+
+  const nose = new THREE.Mesh(
+    new THREE.ConeGeometry(0.3, 1, 32),
+    new THREE.MeshStandardMaterial({ color: 0xef4444 })
+  );
+  nose.position.y = 4;
+  group.add(nose);
+
+  const flame = new THREE.Mesh(
+    new THREE.ConeGeometry(0.25, 1.5, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.8 })
+  );
+  flame.rotation.x = Math.PI;
+  flame.position.y = -0.5;
+  flame.visible = false;
+  group.add(flame);
+  group.userData.flame = flame;
+
+  return group;
+}
+const rocket = createRocket();
+scene.add(rocket);
+
+// Trajectory Line
+const points = frames.map(f => new THREE.Vector3(f.x * SCALE, f.alt * SCALE, f.y * SCALE));
+const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x00f2ff, opacity: 0.3, transparent: true }));
+scene.add(line);
+
+// --- ANIMATION & CONTROLS ---
+let simTime = 0;
+let playing = true;
+let autoTurn = true;
+let azimuth = Math.PI / 4;
+
+document.getElementById('playBtn').onclick = () => {
+  playing = !playing;
+  document.getElementById('playBtn').innerText = playing ? 'PAUSE' : 'PLAY';
+};
+document.getElementById('resetBtn').onclick = () => simTime = 0;
+document.getElementById('turnBtn').onclick = () => {
+  autoTurn = !autoTurn;
+  document.getElementById('turnBtn').classList.toggle('active', autoTurn);
+  document.getElementById('turnBtn').innerText = 'AUTO-TURNAROUND: ' + (autoTurn ? 'ON' : 'OFF');
+};
+
+function updateHUD(f) {
+  document.getElementById('phase').innerText = f.phase;
+  document.getElementById('time').innerText = f.t.toFixed(2) + 's';
+  document.getElementById('alt').innerText = f.alt.toFixed(1) + 'm';
+  document.getElementById('vvel').innerText = f.vAlt.toFixed(1) + 'm/s';
+  document.getElementById('drift').innerText = f.x.toFixed(1) + ' / ' + f.y.toFixed(1) + ' m';
+  document.getElementById('imu').innerText = `P:${f.pitch.toFixed(0)} R:${(f.roll%360).toFixed(0)} Y:${f.yaw.toFixed(0)}`;
+  document.getElementById('scrub').value = (f.t / totalDuration) * 100;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (playing) {
+    simTime += 0.016; // 60fps approx
+    if (simTime > totalDuration) simTime = 0;
+  }
+
+  const idx = Math.min(frames.length - 1, Math.floor(simTime / DT));
+  const f = frames[idx];
+
+  // Update Rocket Position/Rotation
+  rocket.position.set(f.x * SCALE, f.alt * SCALE, f.y * SCALE);
+  rocket.rotation.x = f.pitch * (Math.PI / 180);
+  rocket.rotation.z = f.yaw * (Math.PI / 180);
+  rocket.rotation.y = f.roll * (Math.PI / 180);
+  
+  // Flame visibility
+  rocket.userData.flame.visible = (f.phase === 'BOOST');
+  if(f.phase === 'BOOST') rocket.userData.flame.scale.set(1, 0.8 + Math.random()*0.4, 1);
+
+  // Professional Turnaround Camera
+  if (autoTurn) azimuth += 0.005;
+  const radius = 25;
+  camera.position.x = rocket.position.x + radius * Math.cos(azimuth);
+  camera.position.z = rocket.position.z + radius * Math.sin(azimuth);
+  camera.position.y = rocket.position.y + 8;
+  camera.lookAt(rocket.position);
+
+  updateHUD(f);
+  renderer.render(scene, camera);
+}
+
+// Hide loader when ready
+setTimeout(() => {
+  document.getElementById('loading-overlay').style.display = 'none';
+  animate();
+}, 1000);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
